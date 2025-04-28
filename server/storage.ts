@@ -15,6 +15,8 @@ import {
   type Requirement,
   type InsertRequirement
 } from "@shared/schema";
+import { db } from './db';
+import { and, eq } from 'drizzle-orm';
 
 export interface IStorage {
   // User operations
@@ -44,177 +46,101 @@ export interface IStorage {
   createRequirement(requirement: InsertRequirement): Promise<Requirement>;
 }
 
-export class MemStorage implements IStorage {
-  private usersMap: Map<number, User>;
-  private tasksMap: Map<number, Task>;
-  private subtasksMap: Map<number, Subtask>;
-  private commentsMap: Map<number, Comment>;
-  private requirementsMap: Map<number, Requirement>;
-  
-  private currentUserId: number;
-  private currentTaskId: number;
-  private currentSubtaskId: number;
-  private currentCommentId: number;
-  private currentRequirementId: number;
-
-  constructor() {
-    this.usersMap = new Map();
-    this.tasksMap = new Map();
-    this.subtasksMap = new Map();
-    this.commentsMap = new Map();
-    this.requirementsMap = new Map();
-    
-    this.currentUserId = 1;
-    this.currentTaskId = 1;
-    this.currentSubtaskId = 1;
-    this.currentCommentId = 1;
-    this.currentRequirementId = 1;
-    
-    // Initialize with sample data
-    this.initializeSampleData();
-  }
-
-  private initializeSampleData() {
-    // Add sample tasks here if needed
-  }
-
+export class DatabaseStorage implements IStorage {
   // User operations
   async getUser(id: number): Promise<User | undefined> {
-    return this.usersMap.get(id);
+    const result = await db.select().from(users).where(eq(users.id, id));
+    return result.length > 0 ? result[0] : undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.usersMap.values()).find(
-      (user) => user.username === username,
-    );
+    const result = await db.select().from(users).where(eq(users.username, username));
+    return result.length > 0 ? result[0] : undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentUserId++;
-    const user: User = { ...insertUser, id };
-    this.usersMap.set(id, user);
-    return user;
+    const result = await db.insert(users).values(insertUser).returning();
+    return result[0];
   }
   
   // Task operations
   async getAllTasks(): Promise<Task[]> {
-    return Array.from(this.tasksMap.values());
+    return await db.select().from(tasks);
   }
   
   async getTaskById(id: number): Promise<Task | undefined> {
-    return this.tasksMap.get(id);
+    const result = await db.select().from(tasks).where(eq(tasks.id, id));
+    return result.length > 0 ? result[0] : undefined;
   }
   
   async createTask(insertTask: InsertTask): Promise<Task> {
-    const id = this.currentTaskId++;
-    const now = new Date();
-    const task: Task = { 
-      ...insertTask, 
-      id, 
-      createdAt: now
-    };
-    this.tasksMap.set(id, task);
-    return task;
+    const result = await db.insert(tasks).values(insertTask).returning();
+    return result[0];
   }
   
   async updateTask(id: number, partialTask: Partial<InsertTask>): Promise<Task | undefined> {
-    const task = this.tasksMap.get(id);
-    if (!task) return undefined;
+    const result = await db.update(tasks)
+      .set(partialTask)
+      .where(eq(tasks.id, id))
+      .returning();
     
-    const updatedTask: Task = { ...task, ...partialTask };
-    this.tasksMap.set(id, updatedTask);
-    return updatedTask;
+    return result.length > 0 ? result[0] : undefined;
   }
   
   async deleteTask(id: number): Promise<boolean> {
-    if (!this.tasksMap.has(id)) return false;
+    const result = await db.delete(tasks)
+      .where(eq(tasks.id, id))
+      .returning({ id: tasks.id });
     
-    // Delete the task
-    this.tasksMap.delete(id);
-    
-    // Delete related subtasks
-    for (const [subtaskId, subtask] of this.subtasksMap.entries()) {
-      if (subtask.taskId === id) {
-        this.subtasksMap.delete(subtaskId);
-      }
-    }
-    
-    // Delete related comments
-    for (const [commentId, comment] of this.commentsMap.entries()) {
-      if (comment.taskId === id) {
-        this.commentsMap.delete(commentId);
-      }
-    }
-    
-    // Delete related requirements
-    for (const [requirementId, requirement] of this.requirementsMap.entries()) {
-      if (requirement.taskId === id) {
-        this.requirementsMap.delete(requirementId);
-      }
-    }
-    
-    return true;
+    return result.length > 0;
   }
   
   // Subtask operations
   async getSubtasksByTaskId(taskId: number): Promise<Subtask[]> {
-    return Array.from(this.subtasksMap.values()).filter(
-      (subtask) => subtask.taskId === taskId
-    );
+    return await db.select().from(subtasks).where(eq(subtasks.taskId, taskId));
   }
   
   async createSubtask(insertSubtask: InsertSubtask): Promise<Subtask> {
-    const id = this.currentSubtaskId++;
-    const subtask: Subtask = { ...insertSubtask, id };
-    this.subtasksMap.set(id, subtask);
-    return subtask;
+    const result = await db.insert(subtasks).values(insertSubtask).returning();
+    return result[0];
   }
   
   async updateSubtask(id: number, partialSubtask: Partial<InsertSubtask>): Promise<Subtask | undefined> {
-    const subtask = this.subtasksMap.get(id);
-    if (!subtask) return undefined;
+    const result = await db.update(subtasks)
+      .set(partialSubtask)
+      .where(eq(subtasks.id, id))
+      .returning();
     
-    const updatedSubtask: Subtask = { ...subtask, ...partialSubtask };
-    this.subtasksMap.set(id, updatedSubtask);
-    return updatedSubtask;
+    return result.length > 0 ? result[0] : undefined;
   }
   
   async deleteSubtask(id: number): Promise<boolean> {
-    return this.subtasksMap.delete(id);
+    const result = await db.delete(subtasks)
+      .where(eq(subtasks.id, id))
+      .returning({ id: subtasks.id });
+    
+    return result.length > 0;
   }
   
   // Comment operations
   async getCommentsByTaskId(taskId: number): Promise<Comment[]> {
-    return Array.from(this.commentsMap.values()).filter(
-      (comment) => comment.taskId === taskId
-    );
+    return await db.select().from(comments).where(eq(comments.taskId, taskId));
   }
   
   async createComment(insertComment: InsertComment): Promise<Comment> {
-    const id = this.currentCommentId++;
-    const now = new Date();
-    const comment: Comment = { 
-      ...insertComment, 
-      id, 
-      time: now 
-    };
-    this.commentsMap.set(id, comment);
-    return comment;
+    const result = await db.insert(comments).values(insertComment).returning();
+    return result[0];
   }
   
   // Requirement operations
   async getRequirementsByTaskId(taskId: number): Promise<Requirement[]> {
-    return Array.from(this.requirementsMap.values()).filter(
-      (requirement) => requirement.taskId === taskId
-    );
+    return await db.select().from(requirements).where(eq(requirements.taskId, taskId));
   }
   
   async createRequirement(insertRequirement: InsertRequirement): Promise<Requirement> {
-    const id = this.currentRequirementId++;
-    const requirement: Requirement = { ...insertRequirement, id };
-    this.requirementsMap.set(id, requirement);
-    return requirement;
+    const result = await db.insert(requirements).values(insertRequirement).returning();
+    return result[0];
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
